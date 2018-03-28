@@ -1,4 +1,5 @@
 from __future__ import print_function
+import argparse
 import httplib2
 import os
 import json
@@ -8,21 +9,23 @@ from oauth2client import client
 from oauth2client import tools
 from oauth2client.file import Storage
 
-from get_credentials import get_credentials               #link get_credential.py
+from get_credentials import get_credentials                 #link get_credential.py
+from constants import *                                     #link constants.py
 
 
-#Parse input args, if any
-try:
-    import argparse
-    flags = argparse.ArgumentParser(parents=[tools.argparser]).parse_args()
-except ImportError:
-    flags = None
+#Parse input args
+parser = argparse.ArgumentParser(description='Downloads all individual revisions for a file on Google Drive.')
 
+parser.add_argument('fileID', help='ID of the file to be downloaded') 
+parser.add_argument('--format', 
+    help='File Format when exporting files created from Google Docs. This argument will be ignored when exporting regular files from Google Drive.\n \
+    Available Export Formats for Google Docs: rtf, odt, html, epub, docx, pdf, zip, txt.\n \
+    For Google Sheets: ods, tsv, xlsx, csv, pdf, zip, txt.\n \
+    For Google Slides: odp, pptx, pdf. \n \
+    For Google Drawing: svg, png, jpeg, pdf. \n')
 
-#Constants
-GDOC_MIMETYPE = 'application/vnd.google-apps.document'
-GSHEET_MIMETYPE = 'application/vnd.google-apps.spreadsheet'
-GSLIDE_MIMETYPE = 'application/vnd.google-apps.presentation'
+args = parser.parse_args()
+
 
 
 #Setup an authenticated http and GDrive REST API object
@@ -34,42 +37,96 @@ def main():
 
 
     #docrevtest
-    #REQUEST_FILEID = '1aB1CFZ_KRdwabWIctMLqoimG3Fn1dnuBelKanLNjfP8'     
+    #python main.py 1aB1CFZ_KRdwabWIctMLqoimG3Fn1dnuBelKanLNjfP8 --format docx
 
     #sheetrevtest
-    #REQUEST_FILEID = '1S5vUsWEmnV-uLb7-7m-jOdcBxAKo_834us9x56s7xnw'     
+    #python main.py 1S5vUsWEmnV-uLb7-7m-jOdcBxAKo_834us9x56s7xnw --format xlsx 
 
     #sliderevtest
-    #REQUEST_FILEID = '1_f_abGgeI4CruG72Yjjicrce9rk0NRcc4_4vYjd5JNQ'     
+    #python main.py 1_f_abGgeI4CruG72Yjjicrce9rk0NRcc4_4vYjd5JNQ --format pptx    
 
     #User file in google drive
-    REQUEST_FILEID = '1tG6oBCtgMfqrXa34Rk1HWrudLMzEjZ84'
+    #python main.py 1tG6oBCtgMfqrXa34Rk1HWrudLMzEjZ84
 
-    fileInfo = service.files().get(
-        fileId = REQUEST_FILEID
-        ).execute()
     
-    #Create a folder with the file's name as its download destination
+    #Retreive the associated file's metadata from the fileId
+    fileInfo = service.files().get(
+        fileId = args.fileID
+        ).execute()
     fileName = fileInfo['title']
-    fileDLPath = os.path.join(os.getcwd(), fileName)
-    if not os.path.exists(fileDLPath):
-        os.makedirs(fileDLPath)
+    fileMimeType = fileInfo['mimeType']
+
 
     #Determine what type of file this is
-    fileMimeType = fileInfo['mimeType']
     if fileMimeType == GDOC_MIMETYPE:
-        export_extension = 'docx'
-        export_format = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        print('Identified \"{}\" as a Google Docs file'.format(fileName))
+        
+        if not args.format:
+            print('Error: You must specify --format in order to export this file!')
+            return
+        if not args.format in GDOC_EXPORT_FORMATS:
+            print('Invalid export format \"{}\" for Google Docs.'.format(args.format))
+            print('Available Export Formats for Google Docs: rtf, odt, html, epub, docx, pdf, zip, txt')
+            return
+        
+        export_format = GDOC_EXPORT_FORMATS[args.format]
+        export_extension = args.format
+        
     elif fileMimeType == GSHEET_MIMETYPE:
-        export_extension = 'xlsx'
-        export_format = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        print('Identified \"{}\" as a Google Docs file'.format(fileName))
+        
+        if not args.format:
+            print('Error: You must specify --format in order to export this file!')
+            return
+
+        if not args.format in GSHEET_EXPORT_FORMATS:
+            print('Invalid export format \"{}\" for Google Sheets.'.format(args.format))
+            print('Available Export Formats for Google Sheets: ods, tsv, xlsx, csv, pdf, zip, txt')
+            return
+        
+        export_format = GSHEET_EXPORT_FORMATS[args.format]
+        export_extension = args.format
+
     elif fileMimeType == GSLIDE_MIMETYPE:
-        export_extension = 'pptx'
-        export_format = 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+        print('Identified \"{}\" as a Google Slides file'.format(fileName))
+        
+        if not args.format:
+            print('Error: You must specify --format in order to export this file!')
+            return
+        if not args.format in GSLIDE_EXPORT_FORMATS:
+            print('Invalid export format \"{}\" for Google Slides.'.format(args.format))
+            print('Available Export Formats for Google Slides: odp, pptx, pdf')
+            return
+        
+        export_format = GSLIDE_EXPORT_FORMATS[args.format]
+        export_extension = args.format
+
+    elif fileMimeType == GDRAWING_MIMETYPE:
+        print('Identified \"{}\" as a Google Drawing file'.format(fileName))
+        
+        if not args.format:
+            print('Error: You must specify --format in order to export this file!')
+            return
+        if not args.format in GDRAWING_EXPORT_FORMATS:
+            print('Invalid export format \"{}\" for Google Drawing.'.format(args.format))
+            print('Available Export Formats for Google Drawing: svg, png, jpeg, pdf')
+            return
+        
+        export_format = GDRAWING_EXPORT_FORMATS[args.format]
+        export_extension = args.format
+
     else:
+        print('Identified \"{}\" as a regular file'.format(fileName))
         export_extension = fileName.split('.')[1]
 
-    print('Downloading all revisions of \"{}\"'.format(fileName))
+
+
+    #Create a folder with the file's name as its download destination
+    fileDLPath = os.path.join(os.getcwd(), fileName)
+    if not os.path.exists(fileDLPath):
+        os.makedirs(fileDLPath) 
+    
+    print('Downloading all revisions of \"{}\"...\n'.format(fileName))
 
     #Begin downloading all revisions
     hasAllRevisions = False
@@ -80,12 +137,12 @@ def main():
         #Get a list of all revisions for the file         #https://developers.google.com/drive/v2/reference/revisions/list
         if result_pageToken is '':
             revResponse = service.revisions().list(
-                fileId = REQUEST_FILEID,
+                fileId = args.fileID,
                 maxResults = 2
                 ).execute() 
         else:
              revResponse = service.revisions().list(
-                fileId = REQUEST_FILEID,
+                fileId = args.fileID,
                 maxResults = 2,
                 pageToken = result_pageToken
                 ).execute()
