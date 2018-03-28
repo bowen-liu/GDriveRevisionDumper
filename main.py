@@ -48,6 +48,12 @@ def main():
     fileInfo = service.files().get(
         fileId = REQUEST_FILEID
         ).execute()
+    
+    #Create a folder with the file's name as its download destination
+    fileName = fileInfo['title']
+    fileDLPath = os.path.join(os.getcwd(), fileName)
+    if not os.path.exists(fileDLPath):
+        os.makedirs(fileDLPath)
 
     #Determine what type of file this is
     fileMimeType = fileInfo['mimeType']
@@ -61,14 +67,7 @@ def main():
         export_extension = 'pptx'
         export_format = 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
     else:
-        export_extension = 'png'        #temporary
-        export_format = ''
-    
-    #Create a folder with the file's name as its download destination
-    fileName = fileInfo['title']
-    fileDLPath = os.path.join(os.getcwd(), fileName)
-    if not os.path.exists(fileDLPath):
-        os.makedirs(fileDLPath)
+        export_extension = fileName.split('.')[1]
 
     print('Downloading all revisions of \"{}\"'.format(fileName))
 
@@ -78,9 +77,7 @@ def main():
 
     while not hasAllRevisions:
 
-        #Call the Revision.List function to get a list of all revisions for the file
-        #results is a dict containing the return fields specified in the API documentations
-        #https://developers.google.com/drive/v2/reference/revisions/list
+        #Get a list of all revisions for the file         #https://developers.google.com/drive/v2/reference/revisions/list
         if result_pageToken is '':
             revResponse = service.revisions().list(
                 fileId = REQUEST_FILEID,
@@ -94,13 +91,14 @@ def main():
                 ).execute()
         #print(json.dumps(results, sort_keys=True, indent=4))
         
+        #Download each revision in the current list
         for rev in revResponse['items']:
             print(rev['id'], rev['modifiedDate'])
 
-            if not 'downloadUrl' in rev:
-                dl_url = rev['exportLinks'][export_format]          #file is from google doc 
-            else:
-                dl_url = rev['downloadUrl']                         #any other files in google drive
+            if not 'downloadUrl' in rev:                                                     #file is from google doc
+                dl_url = rev['exportLinks'][export_format]               
+            else:                                                                            #any other files in google drive
+                dl_url = rev['downloadUrl']                         
 
             dl_response, dl_content = http.request(dl_url)
             print(dl_response.status)
