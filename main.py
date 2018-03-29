@@ -5,26 +5,26 @@ import os
 import json
 
 from apiclient import discovery
-from oauth2client import client
-from oauth2client import tools
-from oauth2client.file import Storage
 
 from get_credentials import get_credentials                 #link get_credential.py
 from constants import *                                     #link constants.py
 
 
 #Parse input args
-parser = argparse.ArgumentParser(description='Downloads all individual revisions for a file on Google Drive.')
+def get_input_args():
+    parser = argparse.ArgumentParser(description='Downloads all individual revisions for a file on Google Drive.')
 
-parser.add_argument('fileID', help='ID of the file to be downloaded') 
-parser.add_argument('--format', 
-    help='File Format when exporting files created from Google Docs. This argument will be ignored when exporting regular files from Google Drive.\n \
-    Available Export Formats for Google Docs: rtf, odt, html, epub, docx, pdf, zip, txt.\n \
-    For Google Sheets: ods, tsv, xlsx, csv, pdf, zip, txt.\n \
-    For Google Slides: odp, pptx, pdf. \n \
-    For Google Drawing: svg, png, jpeg, pdf. \n')
+    parser.add_argument('fileID', help='ID of the file to be downloaded') 
+    parser.add_argument('--format', 
+        help='File Format when exporting files created from Google Docs. This argument will be ignored when exporting regular files from Google Drive.\n \
+        Available Export Formats for Google Docs: rtf, odt, html, epub, docx, pdf, zip, txt.\n \
+        For Google Sheets: ods, tsv, xlsx, csv, pdf, zip, txt.\n \
+        For Google Slides: odp, pptx, pdf. \n \
+        For Google Drawing: svg, png, jpeg, pdf. \n')
+    
+    return parser.parse_args()
 
-args = parser.parse_args()
+args = get_input_args()
 
 
 

@@ -1,30 +1,21 @@
 from __future__ import print_function
-import httplib2
 import os
 
-from apiclient import discovery
 from oauth2client import client
 from oauth2client import tools
 from oauth2client.file import Storage
 
 
-
-# If modifying these scopes, delete your previously saved credentials
-# at ~/.credentials/drive-python-quickstart.json
-SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
-CLIENT_SECRET_FILE = 'client_secret.json'
-APPLICATION_NAME = 'Drive API Python Quickstart'
-
 def get_credentials():
-    """Gets valid user credentials from storage.
 
-    If nothing has been stored, or if the stored credentials are invalid,
-    the OAuth2 flow is completed to obtain the new credentials.
+    # If modifying these scopes, delete your previously saved credentials
+    # at ~/.credentials/drive-python-quickstart.json
+    SCOPES = 'https://www.googleapis.com/auth/drive.readonly'
+    CLIENT_SECRET_FILE = 'client_secret.json'
+    APPLICATION_NAME = 'GDriveRevisionDumper'
 
-    Returns:
-        Credentials, the obtained credential.
-    """
-    #home_dir = os.path.expanduser('~')
+    flags=tools.argparser.parse_args(args=[])   #mimics no args specified
+
     home_dir = os.getcwd()
     credential_dir = os.path.join(home_dir, '.credentials')
     if not os.path.exists(credential_dir):
@@ -37,6 +28,9 @@ def get_credentials():
     if not credentials or credentials.invalid:
         flow = client.flow_from_clientsecrets(CLIENT_SECRET_FILE, SCOPES)
         flow.user_agent = APPLICATION_NAME
-        credentials = tools.run(flow, store)
+        
+        credentials = tools.run_flow(flow, store, flags)
         print('Storing credentials to ' + credential_path)
+   
     return credentials
+
