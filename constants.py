@@ -48,3 +48,9 @@ GDRAWING_EXPORT_FORMATS = {
 }
 
 
+#Default exporting formats
+GDOC_DEFAULT_FORMAT = 'docx'
+GSHEET_DEFAULT_FORMAT = 'xlsx'
+GSLIDE_DEFAULT_FORMAT = 'pptx'
+GDRAWING_DEFAULT_FORMAT = 'jpeg'
+
