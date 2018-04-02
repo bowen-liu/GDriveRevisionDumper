@@ -1,10 +1,13 @@
 from __future__ import print_function
-import argparse
-import httplib2
-import os
-import json
-from apiclient import discovery
 
+import argparse
+import os
+import httplib2
+import json
+
+from datetime import datetime
+#from multiprocessing.pool import ThreadPool
+from apiclient import discovery
 
 from constants import *                                     #link constants.py
 
@@ -31,15 +34,23 @@ from constants import *                                     #link constants.py
 def get_input_args():
     parser = argparse.ArgumentParser(description='Downloads all individual revisions for a file on Google Drive.')
 
-    parser.add_argument('fileID', help='ID of the file to be downloaded') 
+    parser.add_argument('fileID', 
+        help='ID of the file to be downloaded') 
+
     parser.add_argument('--format', 
         help='File Format when exporting files created from Google Docs. This argument will be ignored when exporting regular files from Google Drive.\n \
         Available Export Formats for Google Docs: rtf, odt, html, epub, docx, pdf, zip, txt.\n \
         For Google Sheets: ods, tsv, xlsx, csv, pdf, zip, txt.\n \
         For Google Slides: odp, pptx, pdf. \n \
         For Google Drawing: svg, png, jpeg, pdf. \n')
-    
+
+    """
+    parser.add_argument('--threads', nargs='?', const=1, type=int, default=1,
+        help='Number of concurrent threads downloading revisions (default = 1). May speed up overall downloading time when a file has a lot of revisions, and are small in size.')
+    """
+
     return parser.parse_args()
+
 
 def get_credentials():
 
@@ -48,10 +59,8 @@ def get_credentials():
     from oauth2client.file import Storage
     
     # If modifying these scopes, delete your previously saved credentials
-    # at ~/.credentials/drive-python-quickstart.json
+    # at .credentials/drive-python-quickstart.json
     SCOPES = 'https://www.googleapis.com/auth/drive.readonly'
-    CLIENT_SECRET_FILE = 'client_secret.json'
-    APPLICATION_NAME = 'GDriveRevisionDumper'
 
     flags=tools.argparser.parse_args(args=[])   #mimics no args specified
 
@@ -59,19 +68,29 @@ def get_credentials():
     credential_dir = os.path.join(home_dir, '.credentials')
     if not os.path.exists(credential_dir):
         os.makedirs(credential_dir)
-    credential_path = os.path.join(credential_dir,
-                                   'drive-python-quickstart.json')
+    credential_path = os.path.join(credential_dir, 'client_credentials.json')
 
     store = Storage(credential_path)
     credentials = store.get()
     if not credentials or credentials.invalid:
-        flow = client.flow_from_clientsecrets(CLIENT_SECRET_FILE, SCOPES)
-        flow.user_agent = APPLICATION_NAME
+        try:
+            flow = client.flow_from_clientsecrets('client_secret.json', SCOPES)
+        except:
+            print('\n*******************************************************\n')
+            print('ERROR: \"client_secret.json\" was not found or invalid.')
+            print('A valid Google Drive API key is needed to continue.')
+            print('\n*******************************************************\n')
+            print(MISSING_API_KEY_TUT)
+            print('\n')
+            exit()
+
+        flow.user_agent = 'GDriveRevisionDumper'
         
         credentials = tools.run_flow(flow, store, flags)
         print('Storing credentials to ' + credential_path)
    
     return credentials
+
 
 args = get_input_args()
 http = get_credentials().authorize(httplib2.Http())     #Setup an authenticated http and GDrive service object
@@ -152,12 +171,44 @@ def identify_filetype(fileMimeType, fileName):
     return exportFormat, exportExtension
 
 
+def rewrite_datestr(datestr):
+    revdate = datetime.strptime(datestr, "%Y-%m-%dT%H:%M:%S.%fZ")
+    revdate_str = '{}-{}-{} {}-{}-{}'.format(revdate.year, revdate.month, revdate.day, revdate.hour, revdate.minute, revdate.second)
+    return revdate_str
+
+
 
 #########################################################
 #                     Main Script
 #########################################################
 
+exportFormat = ''
+exportExtension = ''
+fileDLPath = ''
+
+def download_revision(rev):
+    #exportFormat, exportExtension, fileDLPath are global variables declared in main()
+
+    print('Downloading revision ' +rev['id'] +', modified on ' +rev['modifiedDate'])
+
+    if not 'downloadUrl' in rev:                                                     #file is from google doc
+        dlUrl = rev['exportLinks'][exportFormat]               
+    else:                                                                            #any other files in google drive
+        dlUrl = rev['downloadUrl']                         
+
+    dlResponse, dlContent = http.request(dlUrl)
+    print('HTTP Response: ' +str(dlResponse.status) +'\n')
+
+    outputFile = '{}\{} {}.{}'.format(fileDLPath, rev['id'], rewrite_datestr(rev['modifiedDate']), exportExtension)
+    with open(outputFile, 'wb') as f:
+        f.write(dlContent) 
+
+
 def main():
+
+    global exportFormat
+    global exportExtension
+    global fileDLPath
     
     #Retreive the associated file's metadata from the fileId
     fileInfo = service.files().get(
@@ -187,32 +238,29 @@ def main():
         if result_pageToken is '':
             revResponse = service.revisions().list(
                 fileId = args.fileID,
-                maxResults = 2
+                maxResults = 1000
                 ).execute() 
         else:
-             revResponse = service.revisions().list(
+            revResponse = service.revisions().list(
                 fileId = args.fileID,
-                maxResults = 2,
+                maxResults = 1000,
                 pageToken = result_pageToken
                 ).execute()
         #print(json.dumps(results, sort_keys=True, indent=4))
         
-        #Download each revision in the current list
+
+        #Download each revision in the current list. For faster downloads, consider parallelizing this loop
         for rev in revResponse['items']:
-            print(rev['id'], rev['modifiedDate'])
-
-            if not 'downloadUrl' in rev:                                                     #file is from google doc
-                dlUrl = rev['exportLinks'][exportFormat]               
-            else:                                                                            #any other files in google drive
-                dlUrl = rev['downloadUrl']                         
-
-            dlResponse, dlContent = http.request(dlUrl)
-            print(dlResponse.status)
-
-            output_path = '{}\{}.{}'.format(fileDLPath, rev['id'], exportExtension)
-            with open(output_path, 'wb') as f:
-                f.write(dlContent) 
-
+                download_revision(rev)
+        
+        """
+        if args.threads <= 1:
+            for rev in revResponse['items']:
+                download_revision(rev)
+        else:
+            ThreadPool(processes=args.threads).map(download_revision, revResponse['items'], chunksize=1)
+        """
+              
         #Prepare for the next iteration, if there are still revision pages remaining to fetch
         if not 'nextPageToken' in revResponse:
             hasAllRevisions = True
