@@ -8,7 +8,7 @@ MISSING_API_KEY_TUT = 'To obtain your own Google Drive API key, please do the fo
 \tStep 6: Click OK to dismiss the resulting dialog. \n \
 \tStep 7: Click the Download JSON button (downwards arrow icon) to the right of the client ID. \n \
 \tStep 8: Move this file in the same directory as the main script and rename it \"client_secret.json\" \n\n \
-Source: https://developers.google.com/drive/v3/web/quickstart/python#step_1_turn_on_the_api_name' 
+Source: https://developers.google.com/drive/v3/web/quickstart/python#step_1_turn_on_the_api_name'
 
 
 #MimeTypes for Google Doc files (and similar derivatives)
@@ -16,6 +16,7 @@ GDOC_MIMETYPE = 'application/vnd.google-apps.document'
 GSHEET_MIMETYPE = 'application/vnd.google-apps.spreadsheet'
 GSLIDE_MIMETYPE = 'application/vnd.google-apps.presentation'
 GDRAWING_MIMETYPE = 'application/vnd.google-apps.drawing'
+GFOLDER_MIMETYPE = 'application/vnd.google-apps.folder'
 
 
 #Available Export Formats for Google Doc

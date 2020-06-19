@@ -1,29 +1,17 @@
 from __future__ import print_function
 
+from constants import *             #link constants.py
+
 import argparse
 import os
 import httplib2
 import json
+import sys
 
 from datetime import datetime
-#from multiprocessing.pool import ThreadPool
+from apiclient import errors
 from apiclient import discovery
-
-from constants import *                                     #link constants.py
-
-
-#Test cases:
-#docrevtest
-#python main.py 1aB1CFZ_KRdwabWIctMLqoimG3Fn1dnuBelKanLNjfP8 --format docx
-
-#sheetrevtest
-#python main.py 1S5vUsWEmnV-uLb7-7m-jOdcBxAKo_834us9x56s7xnw --format xlsx 
-
-#sliderevtest
-#python main.py 1_f_abGgeI4CruG72Yjjicrce9rk0NRcc4_4vYjd5JNQ --format pptx    
-
-#User file in google drive
-#python main.py 1tG6oBCtgMfqrXa34Rk1HWrudLMzEjZ84
+from googleapiclient.http import MediaIoBaseDownload
 
 
 
@@ -34,20 +22,19 @@ from constants import *                                     #link constants.py
 def get_input_args():
     parser = argparse.ArgumentParser(description='Downloads all individual revisions for a file on Google Drive.')
 
-    parser.add_argument('fileID', 
-        help='ID of the file to be downloaded') 
+    parser.add_argument('operation', choices=["revdump", "download"],
+        help='Operation to be performed by the script.\n\
+        ')
 
-    parser.add_argument('--format', 
+    parser.add_argument('file_id',
+        help='ID of the file to be downloaded')
+
+    parser.add_argument('--format',
         help='File Format when exporting files created from Google Docs. This argument will be ignored when exporting regular files from Google Drive.\n \
         Available Export Formats for Google Docs: rtf, odt, html, epub, docx, pdf, zip, txt.\n \
         For Google Sheets: ods, tsv, xlsx, csv, pdf, zip, txt.\n \
         For Google Slides: odp, pptx, pdf. \n \
         For Google Drawing: svg, png, jpeg, pdf. \n')
-
-    """
-    parser.add_argument('--threads', nargs='?', const=1, type=int, default=1,
-        help='Number of concurrent threads downloading revisions (default = 1). May speed up overall downloading time when a file has a lot of revisions, and are small in size.')
-    """
 
     return parser.parse_args()
 
@@ -57,7 +44,7 @@ def get_credentials():
     from oauth2client import client
     from oauth2client import tools
     from oauth2client.file import Storage
-    
+
     # If modifying these scopes, delete your previously saved credentials
     # at .credentials/drive-python-quickstart.json
     SCOPES = 'https://www.googleapis.com/auth/drive.readonly'
@@ -85,182 +72,183 @@ def get_credentials():
             exit()
 
         flow.user_agent = 'GDriveRevisionDumper'
-        
+
         credentials = tools.run_flow(flow, store, flags)
         print('Storing credentials to ' + credential_path)
-   
+
     return credentials
 
 
-args = get_input_args()
-http = get_credentials().authorize(httplib2.Http())     #Setup an authenticated http and GDrive service object
-service = discovery.build('drive', 'v2', http=http)
 
 
 #########################################################
 #          Helper Functions for the main script
 #########################################################
 
-def identify_filetype(fileMimeType, fileName):
+def identify_filetype(fileMimeType, fileName, args_format):
 
     if fileMimeType == GDOC_MIMETYPE:
         print('Identified \"{}\" as a Google Docs file'.format(fileName))
-        
-        if not args.format:
-            args.format = GDOC_DEFAULT_FORMAT
+
+        if not args_format:
+            args_format = GDOC_DEFAULT_FORMAT
             print('Exporting as .' +GDOC_DEFAULT_FORMAT +" (default)")
 
-        elif not args.format in GDOC_EXPORT_FORMATS:
-            print('Invalid export format \"{}\" for Google Docs.'.format(args.format))
+        elif not args_format in GDOC_EXPORT_FORMATS:
+            print('Invalid export format \"{}\" for Google Docs.'.format(args_format))
             print('Available Export Formats for Google Docs: rtf, odt, html, epub, docx, pdf, zip, txt')
-            return 
+            return
 
-        exportFormat = GDOC_EXPORT_FORMATS[args.format]
-        exportExtension = args.format
-        
+        exportFormat = GDOC_EXPORT_FORMATS[args_format]
+        exportExtension = args_format
+
     elif fileMimeType == GSHEET_MIMETYPE:
         print('Identified \"{}\" as a Google Docs file'.format(fileName))
-        
-        if not args.format:
-            args.format = GSHEET_DEFAULT_FORMAT
+
+        if not args_format:
+            args_format = GSHEET_DEFAULT_FORMAT
             print('Exporting as .' +GSHEET_DEFAULT_FORMAT +" (default)")
 
-        elif not args.format in GSHEET_EXPORT_FORMATS:
-            print('Invalid export format \"{}\" for Google Sheets.'.format(args.format))
+        elif not args_format in GSHEET_EXPORT_FORMATS:
+            print('Invalid export format \"{}\" for Google Sheets.'.format(args_format))
             print('Available Export Formats for Google Sheets: ods, tsv, xlsx, csv, pdf, zip, txt')
             return
-        
-        exportFormat = GSHEET_EXPORT_FORMATS[args.format]
-        exportExtension = args.format
+
+        exportFormat = GSHEET_EXPORT_FORMATS[args_format]
+        exportExtension = args_format
 
     elif fileMimeType == GSLIDE_MIMETYPE:
         print('Identified \"{}\" as a Google Slides file'.format(fileName))
-        
-        if not args.format:
-            args.format = GSLIDE_DEFAULT_FORMAT
+
+        if not args_format:
+            args_format = GSLIDE_DEFAULT_FORMAT
             print('Exporting as .' +GSLIDE_DEFAULT_FORMAT +" (default)")
 
-        elif not args.format in GSLIDE_EXPORT_FORMATS:
-            print('Invalid export format \"{}\" for Google Slides.'.format(args.format))
+        elif not args_format in GSLIDE_EXPORT_FORMATS:
+            print('Invalid export format \"{}\" for Google Slides.'.format(args_format))
             print('Available Export Formats for Google Slides: odp, pptx, pdf')
             return
-        
-        exportFormat = GSLIDE_EXPORT_FORMATS[args.format]
-        exportExtension = args.format
+
+        exportFormat = GSLIDE_EXPORT_FORMATS[args_format]
+        exportExtension = args_format
 
     elif fileMimeType == GDRAWING_MIMETYPE:
         print('Identified \"{}\" as a Google Drawing file'.format(fileName))
-        
-        if not args.format:
-            args.format = GDRAWING_DEFAULT_FORMAT
+
+        if not args_format:
+            args_format = GDRAWING_DEFAULT_FORMAT
             print('Exporting as .' +GDRAWING_DEFAULT_FORMAT +" (default)")
 
-        elif not args.format in GDRAWING_EXPORT_FORMATS:
-            print('Invalid export format \"{}\" for Google Drawing.'.format(args.format))
+        elif not args_format in GDRAWING_EXPORT_FORMATS:
+            print('Invalid export format \"{}\" for Google Drawing.'.format(args_format))
             print('Available Export Formats for Google Drawing: svg, png, jpeg, pdf')
             return
-        
-        exportFormat = GDRAWING_EXPORT_FORMATS[args.format]
-        exportExtension = args.format
+
+        exportFormat = GDRAWING_EXPORT_FORMATS[args_format]
+        exportExtension = args_format
+
+    elif fileMimeType == GFOLDER_MIMETYPE:
+        print('Identified \"{}\" as a folder'.format(fileName))
+        exportExtension = ''
+        exportFormat = ''
 
     else:
-        print('Identified \"{}\" as a regular file'.format(fileName))
-        exportExtension = fileName.split('.')[1]
+        print('Identified \"{}\" as a regular file ({})'.format(fileName, fileMimeType))
+        filename_split = fileName.split('.')
+        if (len(filename_split) <= 1):
+            exportExtension = ''
+        else:
+            exportExtension = filename_split[-1]
         exportFormat = exportExtension
 
     return exportFormat, exportExtension
 
+def download_file_by_url(url, out_fname, http):
+
+    try:
+        f = open(out_fname, 'wb')
+    except:
+        print("Failed to create file \"{}\" for writing! Reason: {}".format(out_fname, sys.exc_info()[0]))
+        return
+
+    print("Downloading file \"{}\"...".format(out_fname))
+
+    try:
+        http_response, http_content = http.request(url)
+        #print('HTTP Response: ' +str(http_response.status))
+    except errors.HttpError as error:
+        print('An error occurred: %s' % error)
+        return
+
+    f.write(http_content)
+    f.close()
+
+
+
+#########################################################
+#                   Revision Dumper
+#########################################################
+
+#Test cases:
+#docrevtest
+#python main.py revdump 1aB1CFZ_KRdwabWIctMLqoimG3Fn1dnuBelKanLNjfP8 --format docx
+
+#sheetrevtest
+#python main.py revdump 1S5vUsWEmnV-uLb7-7m-jOdcBxAKo_834us9x56s7xnw --format xlsx
+
+#sliderevtest
+#python main.py revdump 1_f_abGgeI4CruG72Yjjicrce9rk0NRcc4_4vYjd5JNQ --format pptx
+
+#User file in google drive
+#python main.py revdump 1tG6oBCtgMfqrXa34Rk1HWrudLMzEjZ84
 
 def rewrite_datestr(datestr):
     revdate = datetime.strptime(datestr, "%Y-%m-%dT%H:%M:%S.%fZ")
     revdate_str = '{}-{}-{} {}-{}-{}'.format(revdate.year, revdate.month, revdate.day, revdate.hour, revdate.minute, revdate.second)
     return revdate_str
 
+def dump_revisions(params):
 
+    exportFormat = params["exportFormat"]
+    exportExtension = params["exportExtension"]
+    fileDLPath = params["fileDLPath"]
+    http = params["http"]
+    service = params["service"]
 
-#########################################################
-#                     Main Script
-#########################################################
-
-exportFormat = ''
-exportExtension = ''
-fileDLPath = ''
-
-def download_revision(rev):
-    #exportFormat, exportExtension, fileDLPath are global variables declared in main()
-
-    print('Downloading revision ' +rev['id'] +', modified on ' +rev['modifiedDate'])
-
-    if not 'downloadUrl' in rev:                                                     #file is from google doc
-        dlUrl = rev['exportLinks'][exportFormat]               
-    else:                                                                            #any other files in google drive
-        dlUrl = rev['downloadUrl']                         
-
-    dlResponse, dlContent = http.request(dlUrl)
-    print('HTTP Response: ' +str(dlResponse.status) +'\n')
-
-    outputFile = '{}\{} {}.{}'.format(fileDLPath, rev['id'], rewrite_datestr(rev['modifiedDate']), exportExtension)
-    with open(outputFile, 'wb') as f:
-        f.write(dlContent) 
-
-
-def main():
-
-    global exportFormat
-    global exportExtension
-    global fileDLPath
-    
-    #Retreive the associated file's metadata from the fileId
-    fileInfo = service.files().get(
-        fileId = args.fileID
-        ).execute()
-    fileName = fileInfo['title']
-    fileMimeType = fileInfo['mimeType']
-
-
-    #Determine what type of file this is
-    exportFormat, exportExtension = identify_filetype(fileMimeType, fileName)
-
-    #Create a folder with the file's name as its download destination
-    fileDLPath = os.path.join(os.getcwd(), fileName)
-    if not os.path.exists(fileDLPath):
-        os.makedirs(fileDLPath) 
-    
-    print('Downloading all revisions of \"{}\"...\n'.format(fileName))
-
-    #Begin downloading all revisions
     hasAllRevisions = False
     result_pageToken = ''
 
-    while not hasAllRevisions:
+    if (params["is_folder"]):
+        print("\'revdump\' cannot work on a folder! Exiting...")
+        return
 
-        #Get a list of all revisions for the file         #https://developers.google.com/drive/v2/reference/revisions/list
+    while not hasAllRevisions:
+        #Get a list of all revisions for the file
+        #https://developers.google.com/drive/v2/reference/revisions/list
         if result_pageToken is '':
             revResponse = service.revisions().list(
-                fileId = args.fileID,
+                fileId = params["file_id"],
                 maxResults = 1000
-                ).execute() 
+                ).execute()
         else:
             revResponse = service.revisions().list(
-                fileId = args.fileID,
+                fileId = params["file_id"],
                 maxResults = 1000,
                 pageToken = result_pageToken
                 ).execute()
         #print(json.dumps(results, sort_keys=True, indent=4))
-        
 
         #Download each revision in the current list. For faster downloads, consider parallelizing this loop
         for rev in revResponse['items']:
-                download_revision(rev)
-        
-        """
-        if args.threads <= 1:
-            for rev in revResponse['items']:
-                download_revision(rev)
-        else:
-            ThreadPool(processes=args.threads).map(download_revision, revResponse['items'], chunksize=1)
-        """
-              
+            print('Downloading revision ' +rev['id'] +', modified on ' +rev['modifiedDate'])
+            if not 'downloadUrl' in rev:                    #file is from google doc
+                url = rev['exportLinks'][exportFormat]
+            else:                                           #any other files in google drive
+                url = rev['downloadUrl']
+
+            outputFilename = '{}\{} {}.{}'.format(fileDLPath, rev['id'], rewrite_datestr(rev['modifiedDate']), exportExtension)
+            download_file_by_url(url, outputFilename, http)
+
         #Prepare for the next iteration, if there are still revision pages remaining to fetch
         if not 'nextPageToken' in revResponse:
             hasAllRevisions = True
@@ -268,6 +256,139 @@ def main():
             result_pageToken = revResponse['nextPageToken']
 
 
+
+#########################################################
+#                   Revision Dumper
+#########################################################
+
+#Test cases:
+#recursive folder download
+#python3 main.py download 1hD9vjVFT6QFjAW7EZnk8MX9W5cHplRZa
+
+#single file download
+#python3 main.py download 1Jpdo3XXaM6i661Zrcpz8PdmFOx6OAnyf
+
+"""
+def download_file_by_id(file_id, out_fname, service, http):
+
+    try:
+        f = open(out_fname, 'wb')
+    except:
+        print("Failed to create file \"{}\" for writing! Reason: {}".format(out_fname, sys.exc_info()[0]))
+        return
+
+    request = service.files().get_media(fileId=file_id)
+    media_request = MediaIoBaseDownload(f, request)
+
+    while True:
+        try:
+            download_progress, done = media_request.next_chunk()
+        except errors.HttpError as error:
+            print('An error occurred: %s' % error)
+            return
+
+        if download_progress:
+            print('Download Progress: %d%%' % int(download_progress.progress() * 100))
+        if done:
+            print('Download Complete')
+            return
+
+    f.close()
+"""
+
+#Recursively download a folder (DFS)
+#TODO: Work around download Quotas by copying shared files into your own drive,
+#and then download it from there.
+def recursive_downloader(file_id, dl_path, service, http):
+
+    page_token = None
+
+    while (True):
+        try:
+            children = service.children().list(
+                folderId = file_id,                 # Actually folder id
+                pageToken = page_token
+                ).execute()
+
+        except errors.HttpError as error:
+            print('An error occurred: %s' % error)
+            break
+
+        for child in children.get('items', []):
+            child_file_id = child['id']
+
+            #Retreive the current file/folders's metadata
+            child_fileInfo = service.files().get(
+                fileId = child_file_id
+                ).execute()
+
+            child_Name = child_fileInfo['title']
+            child_MimeType = child_fileInfo['mimeType']
+            child_dl_path = dl_path + "/" + child_Name
+
+            #If we find a subdirectory, continue to recurse into it.
+            #Otherwise, download any files we've encountered at this level.
+            if (child_MimeType == GFOLDER_MIMETYPE):
+                if (not os.path.exists(child_dl_path)):
+                    os.makedirs(child_dl_path)
+                recursive_downloader(child_file_id, child_dl_path, service, http)
+            else:
+                #download_file_by_id(file_id, child_dl_path, service, http)
+                download_file_by_url(child_fileInfo['downloadUrl'], child_dl_path, http)
+
+        # Retrieve the next list of children, if any
+        page_token = children.get('nextPageToken')
+        if not page_token:
+            break
+
+    return
+
+#########################################################
+#                     Main Script
+#########################################################
+
+def main():
+
+    args = get_input_args()
+    http = get_credentials().authorize(httplib2.Http())     #Setup an authenticated http and GDrive service object
+    service = discovery.build('drive', 'v2', http=http)
+
+    #Retreive the associated file's metadata from the fileId
+    fileInfo = service.files().get(
+        fileId = args.file_id
+        ).execute()
+    fileName = fileInfo['title']
+    fileMimeType = fileInfo['mimeType']
+
+    #Determine what type of file this is
+    exportFormat, exportExtension = identify_filetype(fileMimeType, fileName, args.format)
+    is_folder = (fileMimeType == GFOLDER_MIMETYPE)
+
+    #Create a folder with the file's name as its download destination
+    fileDLPath = os.path.join(os.getcwd(), fileName)
+    if (is_folder and not os.path.exists(fileDLPath)):
+        os.makedirs(fileDLPath)
+
+    params = {
+        "file_id": args.file_id,
+        "fileInfo" : fileInfo,
+        "is_folder" : is_folder,
+        "exportFormat" : exportFormat,
+        "exportExtension" : exportExtension,
+        "fileDLPath" : fileDLPath,
+        "http" : http,
+        "service" : service,
+    }
+
+    if (args.operation == "revdump"):
+        print('Downloading all revisions of \"{}\"...\n'.format(fileName))
+        dump_revisions(params)
+    elif (args.operation == "download"):
+        print('Downloading \"{}\"...\n'.format(fileName))
+        if (is_folder):
+            recursive_downloader(args.file_id, fileDLPath, service, http)
+        else:
+            download_file_by_id(args.file_id, fileDLPath, service, http)
 
 if __name__ == '__main__':
     main()
