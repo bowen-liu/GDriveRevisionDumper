@@ -163,6 +163,7 @@ def identify_filetype(fileMimeType, fileName, args_format):
 
     return exportFormat, exportExtension
 
+
 def download_file_by_url(url, out_fname, http):
 
     try:
@@ -182,6 +183,33 @@ def download_file_by_url(url, out_fname, http):
 
     f.write(http_content)
     f.close()
+
+def download_file_by_id(file_id, out_fname, service):
+
+    try:
+        f = open(out_fname, 'wb')
+    except:
+        print("Failed to create file \"{}\" for writing! Reason: {}".format(out_fname, sys.exc_info()[0]))
+        return
+
+    request = service.files().get_media(fileId=file_id)
+    media_request = MediaIoBaseDownload(f, request)
+
+    while True:
+        try:
+            download_progress, done = media_request.next_chunk()
+        except errors.HttpError as error:
+            print('An error occurred: %s' % error)
+            f.close()
+            return False
+
+        if download_progress:
+            print(' Download Progress: %d%%' % int(download_progress.progress() * 100))
+        if done:
+            break
+
+    f.close()
+    return True
 
 
 
@@ -258,7 +286,7 @@ def dump_revisions(params):
 
 
 #########################################################
-#                   Revision Dumper
+#                Recursive Downloader
 #########################################################
 
 #Test cases:
@@ -268,37 +296,10 @@ def dump_revisions(params):
 #single file download
 #python3 main.py download 1Jpdo3XXaM6i661Zrcpz8PdmFOx6OAnyf
 
-"""
-def download_file_by_id(file_id, out_fname, service, http):
-
-    try:
-        f = open(out_fname, 'wb')
-    except:
-        print("Failed to create file \"{}\" for writing! Reason: {}".format(out_fname, sys.exc_info()[0]))
-        return
-
-    request = service.files().get_media(fileId=file_id)
-    media_request = MediaIoBaseDownload(f, request)
-
-    while True:
-        try:
-            download_progress, done = media_request.next_chunk()
-        except errors.HttpError as error:
-            print('An error occurred: %s' % error)
-            return
-
-        if download_progress:
-            print('Download Progress: %d%%' % int(download_progress.progress() * 100))
-        if done:
-            print('Download Complete')
-            return
-
-    f.close()
-"""
-
 #Recursively download a folder (DFS)
 #TODO: Work around download Quotas by copying shared files into your own drive,
 #and then download it from there.
+
 def recursive_downloader(file_id, dl_path, service, http):
 
     page_token = None
@@ -306,7 +307,7 @@ def recursive_downloader(file_id, dl_path, service, http):
     while (True):
         try:
             children = service.children().list(
-                folderId = file_id,                 # Actually folder id
+                folderId = file_id,                 # Or a folder id
                 pageToken = page_token
                 ).execute()
 
@@ -333,8 +334,8 @@ def recursive_downloader(file_id, dl_path, service, http):
                     os.makedirs(child_dl_path)
                 recursive_downloader(child_file_id, child_dl_path, service, http)
             else:
-                #download_file_by_id(file_id, child_dl_path, service, http)
-                download_file_by_url(child_fileInfo['downloadUrl'], child_dl_path, http)
+                print("Downloading \"" +child_Name +"\" (" +str(child_fileInfo['fileSize']) +" bytes)..."  )
+                download_file_by_id(child_file_id, child_dl_path, service)
 
         # Retrieve the next list of children, if any
         page_token = children.get('nextPageToken')
@@ -384,11 +385,7 @@ def main():
         print('Downloading all revisions of \"{}\"...\n'.format(fileName))
         dump_revisions(params)
     elif (args.operation == "download"):
-        print('Downloading \"{}\"...\n'.format(fileName))
-        if (is_folder):
-            recursive_downloader(args.file_id, fileDLPath, service, http)
-        else:
-            download_file_by_id(args.file_id, fileDLPath, service, http)
+        recursive_downloader(args.file_id, fileDLPath, service, http)
 
 if __name__ == '__main__':
     main()
