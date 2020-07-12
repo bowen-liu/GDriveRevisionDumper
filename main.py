@@ -195,8 +195,9 @@ def download_file_by_id(file_id, out_fname, service):
         print("Failed to create file \"{}\" for writing! Reason: {}".format(out_fname, sys.exc_info()[0]))
         return
 
+    #download in 10MB chunks
     request = service.files().get_media(fileId=file_id)
-    media_request = MediaIoBaseDownload(f, request)
+    media_request = MediaIoBaseDownload(f, request, chunksize=10*1024*1024)
 
     while True:
         try:
