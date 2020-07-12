@@ -29,6 +29,9 @@ def get_input_args():
     parser.add_argument('file_id',
         help='ID of the file to be downloaded')
 
+    parser.add_argument('-i', '--import-bypass', default=False, action='store_true',
+        help='Bypass a file\'s download limit by temporarily importing it to your own drive first.')
+
     parser.add_argument('--format',
         help='File Format when exporting files created from Google Docs. This argument will be ignored when exporting regular files from Google Drive.\n \
         Available Export Formats for Google Docs: rtf, odt, html, epub, docx, pdf, zip, txt.\n \
@@ -47,7 +50,7 @@ def get_credentials():
 
     # If modifying these scopes, delete your previously saved credentials
     # at .credentials/drive-python-quickstart.json
-    SCOPES = 'https://www.googleapis.com/auth/drive.readonly'
+    SCOPES = ['https://www.googleapis.com/auth/drive.readonly', 'https://www.googleapis.com/auth/drive.file']
 
     flags=tools.argparser.parse_args(args=[])   #mimics no args specified
 
@@ -296,18 +299,74 @@ def dump_revisions(params):
 #single file download
 #python3 main.py download 1Jpdo3XXaM6i661Zrcpz8PdmFOx6OAnyf
 
+#import download
+#python3 main.py download 1L7PN5ULXnOFaJU0pNE1Tt6LMNjxMTNsb
+
+tmp_folder_fileid = None
+
 #Recursively download a folder (DFS)
-#TODO: Work around download Quotas by copying shared files into your own drive,
-#and then download it from there.
+def recursive_downloader(file_id, dl_path, service, import_bypass=False, fileInfo=None):
 
-def recursive_downloader(file_id, dl_path, service, http):
-
+    global tmp_folder_fileid
     page_token = None
 
+    #if the import_bypass is enabled, create a temporary folder in the user's gdrive
+    if import_bypass and tmp_folder_fileid == None:
+        tmp_folder_name = "_tmp_gdrive_downloader"      #TODO: make this name dynamic
+
+        tmp_folder = service.files().insert(body={
+                'title': tmp_folder_name,
+                'mimeType': GFOLDER_MIMETYPE
+            }).execute()
+
+        tmp_folder_fileid = tmp_folder['id']
+
+    # Get the file_id's metadata if it wasn't passed in
+    if not fileInfo:
+        file_info = service.files().get(
+            fileId = file_id
+            ).execute()
+    else:
+        file_info = fileInfo
+
+    # If file_id is a file, download it and return
+    if (file_info['mimeType'] != GFOLDER_MIMETYPE):
+        if import_bypass:
+            #import_bypass: make a copy of the target file into your own drive first
+            #todo: check if your drive have enough space first?
+            imported_file = service.files().copy(
+                fileId = file_id,
+                body = {
+                    'title': file_info['title'],
+                    'parents': [{'id': tmp_folder_fileid}]
+                }
+            ).execute()
+
+            file_id = imported_file['id']
+            file_info = imported_file
+
+        if (not os.path.exists(dl_path)):
+            os.makedirs(dl_path)
+
+        file_name = file_info['title']
+        save_location = dl_path +"/" +file_name
+
+        print("Downloading \"" +file_name +"\" (" +str(file_info['fileSize']) +" bytes)..."  )
+        download_file_by_id(file_id, save_location, service)
+
+        #delete the imported files (if enabled)
+        if import_bypass:
+            service.files().delete(
+                fileId = file_id
+            ).execute()
+        return
+
+
+    # if file_id is a folder, recurse into it
     while (True):
         try:
             children = service.children().list(
-                folderId = file_id,                 # Or a folder id
+                folderId = file_id,
                 pageToken = page_token
                 ).execute()
 
@@ -325,17 +384,14 @@ def recursive_downloader(file_id, dl_path, service, http):
 
             child_Name = child_fileInfo['title']
             child_MimeType = child_fileInfo['mimeType']
-            child_dl_path = dl_path + "/" + child_Name
 
             #If we find a subdirectory, continue to recurse into it.
             #Otherwise, download any files we've encountered at this level.
             if (child_MimeType == GFOLDER_MIMETYPE):
-                if (not os.path.exists(child_dl_path)):
-                    os.makedirs(child_dl_path)
-                recursive_downloader(child_file_id, child_dl_path, service, http)
+                child_dl_path = dl_path + "/" + child_Name
+                recursive_downloader(child_file_id, child_dl_path, service, fileInfo=child_fileInfo)
             else:
-                print("Downloading \"" +child_Name +"\" (" +str(child_fileInfo['fileSize']) +" bytes)..."  )
-                download_file_by_id(child_file_id, child_dl_path, service)
+                recursive_downloader(child_file_id, dl_path, service, fileInfo=child_fileInfo)
 
         # Retrieve the next list of children, if any
         page_token = children.get('nextPageToken')
@@ -385,7 +441,18 @@ def main():
         print('Downloading all revisions of \"{}\"...\n'.format(fileName))
         dump_revisions(params)
     elif (args.operation == "download"):
-        recursive_downloader(args.file_id, fileDLPath, service, http)
+        recursive_downloader(args.file_id, fileDLPath, service, import_bypass=args.import_bypass)
+
+    #cleanup:
+    #remove the tmp folder in the user's gdrive, if created
+    global tmp_folder_fileid
+    if tmp_folder_fileid is not None:
+        service.files().delete(
+            fileId = tmp_folder_fileid
+        ).execute()
+        tmp_folder_fileid = None
+
+    return
 
 if __name__ == '__main__':
     main()
